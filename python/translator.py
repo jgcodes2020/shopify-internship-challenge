@@ -60,37 +60,76 @@ NUM_BRAILLE_TABLE = {
 # reverse lookup: braille to number
 BRAILLE_NUM_TABLE = {v: k for k, v in NUM_BRAILLE_TABLE.items()}
 
-# Lookup symbol to braille
-SYMBOL_BRAILLE_TABLE = {
-    '.': "..OO.O",
-    ',': "..O...",
-    '?': "..O.OO",
-    '!': "..OOO.",
-    ':': "..OO..",
-    ';': "..O.O.",
-    '-': "....OO",
-    '/': ".O..O.",
-    '<': ".OO..O",
-    '>': "O..OO.",
-    '(': "O.O..O",
-    ')': ".O.OO.",
-}
-# reverse lookup: braille to symbol
-BRAILLE_SYMBOL_TABLE = {v: k for k, v in SYMBOL_BRAILLE_TABLE.items()}
-
 BRAILLE_SPACE = "......"
 
 def decode_braille(input: str) -> str:
-    # 
-    out_buf = StringIO()
+    '''
+    Decodes a Braille string to English if possible; throwing an exception if not.
 
-    # loop over every 6 characters
-    for i in range(0, len(input), 6):
-        pass
+    :param input: The input Braille string.
+    :returns: The Braille string, decoded into English.
+    :raises ValueError: if the string cannot be decoded to English; e.g. because
+        of an incomplete Braille cell, or invalid number codes.
+    '''
 
-    return ""
+    if len(input) % 6 != 0:
+        raise ValueError("Last Braille cell is incomplete")
+
+    is_capital = False
+    is_number = False
+
+    next_match = None
+
+    with StringIO() as out_buf:
+        # loop over every 6 characters
+        for i in range(0, len(input), 6):
+            cell = input[i:i+6]
+
+            if (next_match := BRAILLE_OP_TABLE.get(cell)) is not None:
+                # Match opcodes: special characters that affect subsequent characters
+                if is_capital or is_number:
+                    raise ValueError("Adjacent opcode cells disallowed in Braille")
+                if next_match == OP_CAPITAL:
+                    is_capital = True
+                elif next_match == OP_NUMBER:
+                    is_number = True
+            # handle opcode modes
+            elif is_capital:
+                # capital opcode needs to be followed by a letter.
+                if (next_match := BRAILLE_ALPHA_TABLE.get(cell)) is None:
+                    raise ValueError("Unexpected non-letter cell following capital opcode")
+                out_buf.write(next_match.upper())
+                is_capital = False
+            elif is_number:
+                # spaces end number mode.
+                if cell == BRAILLE_SPACE:
+                    out_buf.write(' ')
+                    is_number = False
+                # otherwise it must be a number.
+                elif (next_match := BRAILLE_NUM_TABLE.get(cell)) is not None:
+                    out_buf.write(next_match)
+                else: 
+                    raise ValueError("Unexpected non-digit cell following number opcode")
+            # Handle letters and symbols that can be encoded
+            elif cell == BRAILLE_SPACE:
+                out_buf.write(' ')
+            elif (next_match := BRAILLE_ALPHA_TABLE.get(cell)) is not None:
+                out_buf.write(next_match)
+            # Otherwise it's invalid
+            else:
+                raise ValueError(f"Invalid Braille cell: {cell}")
+            
+        return out_buf.getvalue()
 
 def encode_braille(input: str) -> str:
+    '''
+    Encodes an English string to Braille if possible; throwing an exception if not.
+
+    :param input: The input English string.
+    :returns: The English string, encoded into Braille.
+    :raises ValueError: if the string cannot be encoded into Braille; i.e. it contains 
+        symbols that cannot be encoded, or has a number not followed by a space.
+    '''
     number_mode = False
 
     with StringIO() as out_buf:
@@ -106,7 +145,7 @@ def encode_braille(input: str) -> str:
                 elif char.isdigit():
                     out_buf.write(NUM_BRAILLE_TABLE[char])
                 else:
-                    raise ValueError("Number without trailing space cannot be encoded into Braille!")
+                    raise ValueError("Number without trailing space cannot be encoded into Braille")
             elif char == ' ':
                 out_buf.write(BRAILLE_SPACE)
             elif char.isalpha():
@@ -120,17 +159,32 @@ def encode_braille(input: str) -> str:
                 out_buf.write(NUM_BRAILLE_TABLE[char])
                 number_mode = True
             else:
-                # We only have encodings for a select set of symbols.
-                output = SYMBOL_BRAILLE_TABLE.get(char)
-                if output is None:
-                    raise ValueError(f"Character '{char}' cannot be encoded into Braille!")
-                out_buf.write(output)
+                raise ValueError(f"Character '{char}' cannot be encoded into Braille")
 
         return out_buf.getvalue()
 
 
+def is_probably_braille(input: str) -> bool:
+    '''
+    Makes an educated guess as to whether a string is English or Braille.
+
+    :param input: The input string, probably either English or Braille.
+    :returns: `True` if the string is probably written in Braille, `False` otherwise.
+    '''
+
+    for char in input:
+        if char not in ['.', 'O']:
+            return False
+        
+    return True
 
 # Assume one space between each argument
 input_str = " ".join(sys.argv[1:])
+output_str = None
 
-print(encode_braille(input_str))
+if is_probably_braille(input_str):
+    output_str = decode_braille(input_str)
+else:
+    output_str = encode_braille(input_str)
+
+print(output_str)
